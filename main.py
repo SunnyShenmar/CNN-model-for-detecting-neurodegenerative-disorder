@@ -132,6 +132,17 @@ def main():
     print("Preparing data generators...")
     train_generator, test_generator = get_data_generators(train_data_dir, args.test_dir)
 
+    # Verify that images were found
+    if train_generator.n == 0:
+        print(f"Error: No training images found in directory '{train_data_dir}'.")
+        print("Please ensure the directory contains subdirectories for each class (AD, CN, MCI) and that they contain images.")
+        return
+    if test_generator.n == 0:
+        print(f"Error: No testing images found in directory '{args.test_dir}'.")
+        return
+
+    print(f"Found {train_generator.n} training images and {test_generator.n} testing images.")
+
     print("Building and compiling the model...")
     model = create_model()
     model.summary()
