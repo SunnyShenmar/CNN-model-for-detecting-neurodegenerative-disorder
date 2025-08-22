@@ -5,9 +5,13 @@ from tensorflow.keras.layers import Conv2D, SeparableConv2D, AveragePooling2D, F
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from tensorflow.keras.regularizers import l1
 from tensorflow.keras.callbacks import ModelCheckpoint, ReduceLROnPlateau, EarlyStopping
-from tensorflow.keras.applications import vgg16 as vg
+import tensorflow as tf
 import gan
 import argparse
+import numpy as np
+from sklearn.metrics import classification_report, confusion_matrix
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 def run_gan_augmentation(train_dir, augmented_dir, classes=['AD', 'CN', 'MCI'], latent_dim=100, n_samples=50):
     """
@@ -26,17 +30,7 @@ def run_gan_augmentation(train_dir, augmented_dir, classes=['AD', 'CN', 'MCI'], 
             print(f"Warning: Directory not found for class {class_name}, skipping GAN augmentation.")
             continue
 
-        # This is where the data for the specific class would be loaded.
-        # e.g., dataset = load_real_samples(class_dir)
         print(f"Loading real samples for {class_name}... (Skipped: No data)")
-
-        # Create generator and discriminator
-        # ... (rest of the logic remains a placeholder) ...
-
-        # Generate and save synthetic images
-        output_dir = os.path.join(augmented_dir, class_name)
-        print(f"Generating synthetic images for {class_name} and saving to {output_dir}...")
-        # gan.generate_synthetic_images(generator, latent_dim, n_samples, output_dir)
 
     print("GAN augmentation process placeholder finished.")
 
@@ -58,16 +52,7 @@ def create_model(input_shape=(256, 256, 3), num_classes=3):
 
 def get_data_generators(train_dir, test_dir, target_size=(256, 256), batch_size=12):
     """Creates the data generators for training and testing with data augmentation."""
-    train_datagen = ImageDataGenerator(
-        rescale=1./255,
-        rotation_range=20,
-        width_shift_range=0.2,
-        height_shift_range=0.2,
-        shear_range=0.2,
-        zoom_range=0.2,
-        horizontal_flip=True,
-        fill_mode='nearest'
-    )
+    train_datagen = ImageDataGenerator(rescale=1./255)
     test_datagen = ImageDataGenerator(rescale=1./255)
 
     train_batches = train_datagen.flow_from_directory(
@@ -90,7 +75,7 @@ def get_data_generators(train_dir, test_dir, target_size=(256, 256), batch_size=
 
 def train_model(classifier, train_batches, test_batches, epochs=25):
     """Trains the model."""
-    checkpoint = ModelCheckpoint(filepath='best_weights.hdf5', save_best_only=True, monitor='val_loss', mode='min')
+    checkpoint = ModelCheckpoint(filepath='best_model.keras', save_best_only=True, monitor='val_loss', mode='min')
     lr_reduce = ReduceLROnPlateau(monitor='val_loss', factor=0.3, patience=2, verbose=1, mode='min')
     early_stop = EarlyStopping(monitor='val_loss', min_delta=0.001, patience=5, mode='min', verbose=1)
 
@@ -132,14 +117,8 @@ def main():
     if args.unzip:
         unzip_datasets()
 
-    # Validate data directories
-    if not os.path.isdir(args.train_dir):
-        print(f"Error: Training directory not found at '{args.train_dir}'")
-        print("Please ensure the directory exists or use the --unzip flag if you have the zip files.")
-        return
-    if not os.path.isdir(args.test_dir):
-        print(f"Error: Testing directory not found at '{args.test_dir}'")
-        print("Please ensure the directory exists or use the --unzip flag if you have the zip files.")
+    if not os.path.isdir(args.train_dir) or not os.path.isdir(args.test_dir):
+        print("Error: Dataset directories not found. Please provide the correct paths or use the --unzip flag.")
         return
 
     train_data_dir = args.train_dir
@@ -147,24 +126,41 @@ def main():
         run_gan_augmentation(args.train_dir, args.augmented_dir)
         train_data_dir = args.augmented_dir
         if not os.path.isdir(train_data_dir) or not os.listdir(train_data_dir):
-             print(f"Error: GAN augmentation selected, but augmented data directory '{train_data_dir}' is empty or not found.")
-             print("Please ensure the GAN process successfully generates images.")
+             print(f"Error: GAN augmentation selected, but augmented data directory '{train_data_dir}' is empty.")
              return
 
-    # Get data generators
     print("Preparing data generators...")
     train_generator, test_generator = get_data_generators(train_data_dir, args.test_dir)
 
-    # Create and train the model
     print("Building and compiling the model...")
     model = create_model()
     model.summary()
 
     print(f"Starting training for {args.epochs} epochs...")
-    history = train_model(model, train_generator, test_generator, epochs=args.epochs)
+    train_model(model, train_generator, test_generator, epochs=args.epochs)
 
     print("Training complete.")
-    # You can add evaluation logic here, e.g., model.evaluate(test_generator)
+
+    print("\n--- Evaluating the model on the test set ---")
+    loaded_model = tf.keras.models.load_model('best_model.keras')
+    y_true = test_generator.classes
+    y_pred_proba = loaded_model.predict(test_generator)
+    y_pred = np.argmax(y_pred_proba, axis=1)
+
+    print("\n--- Classification Report ---")
+    print(classification_report(y_true, y_pred, target_names=test_generator.class_indices.keys()))
+
+    print("\n--- Confusion Matrix ---")
+    cm = confusion_matrix(y_true, y_pred)
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+                xticklabels=test_generator.class_indices.keys(),
+                yticklabels=test_generator.class_indices.keys())
+    plt.ylabel('Actual')
+    plt.xlabel('Predicted')
+    plt.title('Confusion Matrix')
+    plt.savefig('confusion_matrix.png')
+    print("Confusion matrix saved to confusion_matrix.png")
 
 if __name__ == '__main__':
     main()
