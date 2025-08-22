@@ -102,22 +102,44 @@ def train_model(classifier, train_batches, test_batches, epochs=25):
     )
     return history
 
+def unzip_datasets():
+    """Unzips the training and testing datasets if they exist."""
+    print("Checking for dataset zip files...")
+    for zip_name in ['Training_Set.zip', 'Test_Set.zip']:
+        if os.path.exists(zip_name):
+            extract_dir = zip_name.replace('.zip', '')
+            if not os.path.exists(extract_dir):
+                print(f"Unzipping {zip_name}...")
+                with zipfile.ZipFile(zip_name, 'r') as zip_ref:
+                    zip_ref.extractall('.')
+                print(f"Successfully unzipped to '{extract_dir}'")
+            else:
+                print(f"Directory '{extract_dir}' already exists. Skipping unzip.")
+        else:
+            print(f"Warning: {zip_name} not found. Skipping unzip.")
+
 def main():
     parser = argparse.ArgumentParser(description="Train a CNN to classify neurodegenerative disorders.")
-    parser.add_argument("train_dir", type=str, help="Path to the training data directory.")
-    parser.add_argument("test_dir", type=str, help="Path to the testing data directory.")
+    parser.add_argument("--train_dir", type=str, default="Training_Set", help="Path to the training data directory.")
+    parser.add_argument("--test_dir", type=str, default="Test_Set", help="Path to the testing data directory.")
     parser.add_argument("--epochs", type=int, default=50, help="Number of epochs to train for.")
     parser.add_argument("--use_gan", action="store_true", help="Enable GAN-based data augmentation.")
     parser.add_argument("--augmented_dir", type=str, default="Augmented_Training_Set", help="Directory for augmented data.")
+    parser.add_argument("--unzip", action="store_true", help="Unzip Training_Set.zip and Test_Set.zip before running.")
 
     args = parser.parse_args()
+
+    if args.unzip:
+        unzip_datasets()
 
     # Validate data directories
     if not os.path.isdir(args.train_dir):
         print(f"Error: Training directory not found at '{args.train_dir}'")
+        print("Please ensure the directory exists or use the --unzip flag if you have the zip files.")
         return
     if not os.path.isdir(args.test_dir):
         print(f"Error: Testing directory not found at '{args.test_dir}'")
+        print("Please ensure the directory exists or use the --unzip flag if you have the zip files.")
         return
 
     train_data_dir = args.train_dir

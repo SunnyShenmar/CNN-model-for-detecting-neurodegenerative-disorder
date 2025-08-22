@@ -30,7 +30,11 @@ def build_transfer_learning_model(input_shape=(256, 256, 3), num_classes=3):
 
     return model
 
-def get_data_generators(target_size=(256, 256), batch_size=12):
+import os
+import zipfile
+import argparse
+
+def get_data_generators(train_dir, test_dir, target_size=(256, 256), batch_size=12):
     """
     Creates the data generators for training and testing.
     Uses VGG16 preprocessing.
@@ -45,56 +49,91 @@ def get_data_generators(target_size=(256, 256), batch_size=12):
         horizontal_flip=True,
         fill_mode='nearest'
     )
-
     test_datagen = ImageDataGenerator(preprocessing_function=tf.keras.applications.vgg16.preprocess_input)
 
     train_batches = train_datagen.flow_from_directory(
-        directory='Training_Set',
+        directory=train_dir,
         target_size=target_size,
         classes=['AD', 'CN', 'MCI'],
-        batch_size=batch_size
+        batch_size=batch_size,
+        class_mode='categorical'
     )
 
     test_batches = test_datagen.flow_from_directory(
-        directory='Test_Set',
+        directory=test_dir,
         target_size=target_size,
         classes=['AD', 'CN', 'MCI'],
-        batch_size=5,
-        shuffle=False
+        batch_size=batch_size,
+        shuffle=False,
+        class_mode='categorical'
     )
     return train_batches, test_batches
 
 def train_model(classifier, train_batches, test_batches, epochs=25):
     """Trains the model."""
-    checkpoint = ModelCheckpoint(filepath='best_weights_tl.hdf5', save_best_only=True, save_weights_only=True)
-    lr_reduce = ReduceLROnPlateau(monitor='val_loss', factor=0.3, patience=2, verbose=2, mode='min')
-    early_stop = EarlyStopping(monitor='val_loss', min_delta=0.1, patience=1, mode='min')
+    checkpoint = ModelCheckpoint(filepath='best_weights_tl.hdf5', save_best_only=True, monitor='val_loss', mode='min')
+    lr_reduce = ReduceLROnPlateau(monitor='val_loss', factor=0.3, patience=2, verbose=1, mode='min')
+    early_stop = EarlyStopping(monitor='val_loss', min_delta=0.001, patience=5, mode='min', verbose=1)
 
     history = classifier.fit(
         train_batches,
-        steps_per_epoch=20,
         epochs=epochs,
         validation_data=test_batches,
-        validation_steps=12,
         callbacks=[checkpoint, lr_reduce, early_stop]
     )
     return history
 
-if __name__ == '__main__':
-    # This is a placeholder for the transfer learning workflow.
-    # It cannot be run without the dataset.
+def unzip_datasets():
+    """Unzips the training and testing datasets if they exist."""
+    print("Checking for dataset zip files...")
+    for zip_name in ['Training_Set.zip', 'Test_Set.zip']:
+        if os.path.exists(zip_name):
+            extract_dir = zip_name.replace('.zip', '')
+            if not os.path.exists(extract_dir):
+                print(f"Unzipping {zip_name}...")
+                with zipfile.ZipFile(zip_name, 'r') as zip_ref:
+                    zip_ref.extractall('.')
+                print(f"Successfully unzipped to '{extract_dir}'")
+            else:
+                print(f"Directory '{extract_dir}' already exists. Skipping unzip.")
+        else:
+            print(f"Warning: {zip_name} not found. Skipping unzip.")
 
-    # 1. Build the transfer learning model
+def main():
+    parser = argparse.ArgumentParser(description="Train a Transfer Learning model to classify neurodegenerative disorders.")
+    parser.add_argument("--train_dir", type=str, default="Training_Set", help="Path to the training data directory.")
+    parser.add_argument("--test_dir", type=str, default="Test_Set", help="Path to the testing data directory.")
+    parser.add_argument("--epochs", type=int, default=25, help="Number of epochs to train for.")
+    parser.add_argument("--unzip", action="store_true", help="Unzip Training_Set.zip and Test_Set.zip before running.")
+
+    args = parser.parse_args()
+
+    if args.unzip:
+        unzip_datasets()
+
+    # Validate data directories
+    if not os.path.isdir(args.train_dir):
+        print(f"Error: Training directory not found at '{args.train_dir}'")
+        print("Please ensure the directory exists or use the --unzip flag if you have the zip files.")
+        return
+    if not os.path.isdir(args.test_dir):
+        print(f"Error: Testing directory not found at '{args.test_dir}'")
+        print("Please ensure the directory exists or use the --unzip flag if you have the zip files.")
+        return
+
+    # Get data generators
+    print("Preparing data generators...")
+    train_generator, test_generator = get_data_generators(args.train_dir, args.test_dir)
+
+    # Create and train the model
+    print("Building and compiling the model...")
     model = build_transfer_learning_model()
     model.summary()
 
-    # 2. Get data generators
-    # This will fail because the 'Training_Set' directory does not exist.
-    # train_generator, test_generator = get_data_generators()
+    print(f"Starting training for {args.epochs} epochs...")
+    history = train_model(model, train_generator, test_generator, epochs=args.epochs)
 
-    # 3. Train the model
-    # history = train_model(model, train_generator, test_generator)
+    print("Training complete.")
 
-    print("The transfer_learning.py script is set up.")
-    print("It defines a transfer learning approach using VGG16.")
-    print("The script cannot be executed without the dataset.")
+if __name__ == '__main__':
+    main()
